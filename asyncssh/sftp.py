@@ -631,12 +631,24 @@ def _split_path_by_globs(pattern: bytes) -> \
 
 
 async def _glob(fs: _SFTPGlobProtocol, basedir: Optional[bytes],
-                patlist: Sequence[object], result: List[bytes]) -> None:
+                patlist: Sequence[object], result: List[bytes],
+                error_handler: SFTPErrorHandler = None) -> None:
     """Recursively match a glob pattern"""
 
     pattern, newpatlist = patlist[0], patlist[1:]
 
-    names = await fs.listdir(basedir or b'.')
+    try:
+        names = await fs.listdir(basedir or b'.')
+
+    except (OSError, SFTPError) as exc:
+        setattr(exc, 'srcpath', pattern)
+        setattr(exc, 'basedir', basedir)
+
+        if error_handler:
+            error_handler(exc)
+            return
+        else:
+            raise
 
     if isinstance(pattern, list):
         if len(pattern) == 1 and not pattern[0] and not newpatlist:
@@ -651,11 +663,11 @@ async def _glob(fs: _SFTPGlobProtocol, basedir: Optional[bytes],
                 if not newpatlist:
                     result.append(newbase)
                 else:
-                    await _glob(fs, newbase, newpatlist, result)
+                    await _glob(fs, newbase, newpatlist, result, error_handler)
                 break
     else:
         if pattern == b'**':
-            await _glob(fs, basedir, newpatlist, result)
+            await _glob(fs, basedir, newpatlist, result, error_handler)
 
         for name in names:
             if name in (b'.', b'..'):
@@ -672,9 +684,9 @@ async def _glob(fs: _SFTPGlobProtocol, basedir: Optional[bytes],
 
                     if attrs.type == FILEXFER_TYPE_DIRECTORY:
                         if pattern == b'**':
-                            await _glob(fs, newbase, patlist, result)
+                            await _glob(fs, newbase, patlist, result, error_handler)
                         else:
-                            await _glob(fs, newbase, newpatlist, result)
+                            await _glob(fs, newbase, newpatlist, result, error_handler)
 
 
 async def match_glob(fs: _SFTPGlobProtocol, pattern: bytes,
@@ -687,7 +699,7 @@ async def match_glob(fs: _SFTPGlobProtocol, pattern: bytes,
     try:
         if any(c in pattern for c in b'*?[]'):
             basedir, patlist = _split_path_by_globs(pattern)
-            await _glob(fs, basedir, patlist, names)
+            await _glob(fs, basedir, patlist, names, error_handler)
 
             if not names:
                 exc = SFTPNoSuchPath if sftp_version >= 4 else SFTPNoSuchFile

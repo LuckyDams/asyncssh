@@ -2028,7 +2028,7 @@ class SFTPGlob:
 
     def __init__(self, fs: _SFTPGlobProtocol):
         self._fs = fs
-        self._prev_matches: Set[int] = set()
+        self._prev_matches: Set[bytes] = set()
         self._new_matches: List[SFTPName] = []
         self._matched = False
         self._stat_cache: Dict[bytes, Optional[SFTPAttrs]] = {}
@@ -2068,10 +2068,9 @@ class SFTPGlob:
         """Report a matching name"""
 
         self._matched = True
-        _path_hash = hash(path)
 
-        if _path_hash not in self._prev_matches:
-            self._prev_matches.add(_path_hash)
+        if path not in self._prev_matches:
+            self._prev_matches.add(path)
             self._new_matches.append(SFTPName(path, attrs=attrs))
 
     async def _stat(self, path) -> Optional[SFTPAttrs]:
